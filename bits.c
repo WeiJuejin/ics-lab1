@@ -146,7 +146,7 @@ NOTES:
  *   Rating: 1
  */
 int signMask(void) {
-  return 1;
+  return 1 << 31;
 }
 
 // P2
@@ -158,7 +158,7 @@ int signMask(void) {
  *   Rating: 2
  */
 int bitXor(int x, int y) {
-	return 2;
+  return ~( ~(x & ~y) & ~(~x & y) );	
 }
 
 // P3
@@ -170,7 +170,7 @@ int bitXor(int x, int y) {
  *   Rating: 3
  */
 int negativePart(int x){
-  return 3;
+  return (~x + 1) & (x >> 31);
 }
 
 
@@ -185,7 +185,9 @@ int negativePart(int x){
  *   Rating: 4
  */
 int copyByteWithin(int x, int src, int dst) {
-  return 4;
+  int byte = (x >> (src << 3)) & 0xFF;
+  int mask = 0xFF << (dst << 3);
+  return (x & ~mask) | (byte << (dst << 3));
 }
 
 // P5
@@ -198,7 +200,8 @@ int copyByteWithin(int x, int src, int dst) {
  *   Rating: 4
  */
 int logicalShift(int x, int n) {
-  return 5;
+  int mask = ~(((1 << 31) >> n) << 1);
+  return (x >> n) & mask;
 }
 
 // P6
@@ -210,7 +213,9 @@ int logicalShift(int x, int n) {
  *   Rating: 4
  */
 int swapNibblePairs(int x) {
-  return 6;
+  int m = 0x0F | (0x0F << 8);      // 0x0F0F 
+  m = m | (m << 16);               // 0x0F0F0F0F 
+  return ((x & m) << 4) | ((x >> 4) & m);
 }
 
 // P7
@@ -223,7 +228,10 @@ int swapNibblePairs(int x) {
  *   Rating: 4
  */
 int secondLowestZeroBit(int x) {
-  return 7;
+  int ones = ~x;                 
+  int low = ones & (~ones + 1);  // 最低的1
+  int rest = ones ^ low;         // 删掉
+  return rest & (~rest + 1);
 }
 
 // P8
@@ -236,7 +244,12 @@ int secondLowestZeroBit(int x) {
  *   Rating: 5
  */
 int oddParity(int x) {
-  return 8;
+  x = x ^ (x >> 16);
+  x = x ^ (x >> 8);
+  x = x ^ (x >> 4);
+  x = x ^ (x >> 2);
+  x = x ^ (x >> 1);
+  return !(x & 1);
 }
 
 // P9
@@ -249,7 +262,10 @@ int oddParity(int x) {
  *   Rating: 5
  */
 int rotateRightBits(int x, int n) {
-  return 9;
+  int k = n & 31;                              
+  int s = (32 + (~k + 1)) & 31;                
+  int mask = ~(((1 << 31) >> k) << 1);         
+  return ((x >> k) & mask) | (x << s);
 }
 
 // P10
@@ -264,7 +280,16 @@ int rotateRightBits(int x, int n) {
  *   Rating: 5
  */
 int roundEvenPow2(int x, int n) {
-  return 10;
+  int half = 1 << (n + ~0);          
+  int q = x >> n;                    // 商 
+  int r = x ^ (q << n);              // 余数 
+  int neg = ~half + 1;              
+  int diff = r + neg;                // r - half 
+  int lt = (diff >> 31) & 1;         // r < half 
+  int eq = !(r ^ half);              // r == half 
+  int gt = !(lt | eq);               // r > half
+  int inc = gt | (eq & (q & 1));     
+  return (q + inc) << n;
 }
 
 // P11
@@ -280,7 +305,14 @@ int roundEvenPow2(int x, int n) {
  *   Rating: 5
  */
 int midpointTowardFirst(int x, int y) {
-  return 11;
+  int sx = x >> 31;
+  int sy = y >> 31;
+  int ds = sx ^ sy;
+  int base = (x & y) + ((x ^ y) >> 1);   /* floor((x+y)/2)，无溢出 */
+  int p = (x ^ y) & 1;                   /* (x+y) 的奇偶 */
+  int d = x + (~y + 1);                  /* x - y，同号时安全 */
+  int xg = (ds & !sx) | (!ds & !(d >> 31));  /* x > y ? */
+  return base + (p & xg);
 }
 
 
@@ -294,7 +326,16 @@ int midpointTowardFirst(int x, int y) {
  *   Rating: 7
  */
 int isBetweenEitherOrder(int x, int a, int b) {
-  return 12;
+  int sx = x >> 31;
+  int sa = a >> 31;
+  int sb = b >> 31;
+  int dxa = sx ^ sa;   //x与a是否异号 
+  int dxb = sx ^ sb;   //x与b是否异号
+  int c1 = (dxa & !sx) | (!dxa & !((x + ~a + 1) >> 31));   //x >= a 
+  int c2 = (dxb & !sb) | (!dxb & !((b + ~x + 1) >> 31));   //b >= x
+  int c3 = (dxb & !sx) | (!dxb & !((x + ~b + 1) >> 31));   //x >= b 
+  int c4 = (dxa & !sa) | (!dxa & !((a + ~x + 1) >> 31));   //a >= x 
+  return (c1 & c2) | (c3 & c4);
 }
 
 // P13
@@ -307,7 +348,17 @@ int isBetweenEitherOrder(int x, int a, int b) {
  *   Rating: 7
  */
 int mul5Sat(int x) {
-  return 13;
+  int sx = x >> 31;
+  int t = x << 2;
+  int p = t + x;
+  int lost = !!(((t >> 2) ^ x));            //4x 丢位
+  int same = !((t >> 31) ^ sx);             //t 与 x 同号 
+  int flip = !!((p >> 31) ^ sx);            
+  int ovf = lost | (same & flip);           //溢出标志 
+  int tmin = 1 << 31;
+  int sat = (sx & tmin) | (~sx & ~tmin);    //负TMin，反之TMax
+  int m = (~ovf) + 1;                       // ovf=1全1掩码，0全0
+  return (m & sat) | (~m & p);
 }
 
 // P14
@@ -320,7 +371,19 @@ int mul5Sat(int x) {
  *   Rating: 7
  */
 int classifyAdd3(int x, int y, int z) {
-  return 14;
+    int s = x + y;
+    int t = s + z;
+    int sx = x >> 31;
+    int ss = s >> 31;
+    int ov1 = (~(x ^ y) & (s ^ x)) >> 31;
+    int ov2 = (~(s ^ z) & (t ^ s)) >> 31;
+    int p1 = ov1 & ~sx;
+    int n1 = ov1 & sx;
+    int p2 = ov2 & ~ss;
+    int n2 = ov2 & ss;
+    int pos = (~ov1 & p2) | (p1 & ~n2);
+    int neg = (~ov1 & n2) | (n1 & ~p2);
+    return (pos & 1) + (~(neg & 1) + 1);
 }
 
 // P15
@@ -337,7 +400,28 @@ int classifyAdd3(int x, int y, int z) {
  *   Rating: 7
  */
 unsigned floatScaleThreeHalves(unsigned uf) {
-  return 15;
+  unsigned s = uf & 0x80000000u;
+  unsigned e = (uf >> 23) & 0xFFu;
+  unsigned f = uf & 0x7FFFFFu;
+  unsigned m, p, rb = 0, sb = 0;
+  int E;
+  if (e == 0xFFu) return uf;                 //NaN/Inf: 原样返回 
+  if (e) { m = f | 0x800000u; E = e - 151; } //补隐含1；指数−151 完成×3再÷2
+  else   { m = f;             E = -150; }    
+  p = m + (m << 1);                          //p × 2^E = 1.5f，完全精确
+  while (p >= 0x1000000u || E < -149) {      // 右移，收集舍入信息
+    sb = sb | rb;                            
+    rb = p & 1u;
+    p = p >> 1;
+    E = E + 1;
+  }
+  if (rb && ((p & 1u) | sb)) p = p + 1;      //舍入到偶数 
+  if (p >= 0x1000000u) { p = p >> 1; E = E + 1; }  //舍入进位跨组
+  if (p >= 0x800000u) {                      
+    if (E + 150 >= 255) return s | 0x7F800000u;   //溢出Inf
+    return s | ((E + 150) << 23) | (p & 0x7FFFFFu);
+  }
+  return s | p;
 }
 
 // P16
@@ -353,7 +437,25 @@ unsigned floatScaleThreeHalves(unsigned uf) {
  *   Rating: 10
  */
 unsigned floatRoundEven(unsigned uf) {
-  return 16;
+  unsigned s = uf & 0x80000000u;
+  unsigned e = (uf >> 23) & 0xFFu;
+  unsigned frac = uf & 0x7FFFFFu;
+  unsigned mask, half, rem, keep, base;
+  if (e == 255u) return uf;
+  if (e >= 150u) return uf;                  //已是整数
+  if (e <= 125u) return s;                   //|f|<0.5 ,±0
+  if (e == 126u) {
+    if (frac) return s | 0x3F800000u;        //(0.5,1)则±1
+    return s;                                //恰 0.5,偶,±0
+  }
+  mask = (1u << (150 - e)) - 1u;             //低 shift 位是小数部分
+  half = ((mask + 1u) >> 1);
+  rem = frac & mask;
+  keep = (0x800000u + frac) >> (150 - e);    //含隐含1的整数部分
+  base = uf & ~mask;                         //向下取整的结果
+  if (rem > half || (rem == half && (keep & 1u)))
+    return base + mask + 1u;                 //进位自然向阶码字段传递
+  return base;
 }
 
 // P17
@@ -367,7 +469,16 @@ unsigned floatRoundEven(unsigned uf) {
  *   Rating: 10
  */
 unsigned float_i2f(int x) {
-  return 17;
+  unsigned sign = 0u, mant, frac, b, e = 158u;
+  if (x == 0) return 0u;
+  if (x < 0) { sign = 0x80000000u; x = -x; }  
+  mant = x;
+  while (!(mant & 0x80000000u)) { mant <<= 1; e = e - 1u; }
+  frac = (mant >> 8) & 0x7FFFFFu;              //高 23 位作尾数
+  b = mant & 0xFFu;                            // 被丢掉的 8 位
+  if (b > 0x80u || (b == 0x80u && (frac & 1u))) frac = frac + 1u;
+  if (frac == 0x800000u) { frac = 0u; e = e + 1u; }  // 舍入进位到阶码
+  return sign | (e << 23) | frac;
 }
 
 
@@ -381,7 +492,18 @@ unsigned float_i2f(int x) {
  *   Rating: 10
  */
 int bitCount(int x) {
-  return 18;
+  int m1 = 0x55 | (0x55 << 8);      //0x5555
+  int m2 = 0x33 | (0x33 << 8);      //0x3333 
+  int m4 = 0x0F | (0x0F << 8);      //0x0F0F 
+  m1 = m1 | (m1 << 16);             //0x55555555
+  m2 = m2 | (m2 << 16);             //0x33333333
+  m4 = m4 | (m4 << 16);             //0x0F0F0F0F
+  x = (x & m1) + ((x >> 1) & m1);   //每 2 位组：1 的个数
+  x = (x & m2) + ((x >> 2) & m2);   //每 4 位组 
+  x = (x & m4) + ((x >> 4) & m4);   //每字节：0–8
+  x = x + (x >> 16);                //高低 16 位求和
+  x = x + (x >> 8);                 //高低字节求和
+  return x & 0x3F;    
 }
 
 // P19
@@ -395,5 +517,14 @@ int bitCount(int x) {
  */
 int bitReverse(int x)
 {
-  return 19;
+  int m16 = 0xFF | (0xFF << 8);         //0xFFFF
+  int m8  = m16 ^ (m16 << 8);           //0x00FF00FF 
+  int m4  = m8  ^ (m8  << 4);           //0x0F0F0F0F 
+  int m2  = m4  ^ (m4  << 2);           //0x33333333 
+  int m1  = m2  ^ (m2  << 1);           //0x55555555 
+  x = ((x >> 1) & m1) | ((x & m1) << 1);   
+  x = ((x >> 2) & m2) | ((x & m2) << 2);   
+  x = ((x >> 4) & m4) | ((x & m4) << 4);  
+  x = ((x >> 8) & m8) | ((x & m8) << 8);   
+  return ((x >> 16) & m16) | (x << 16); 
 }
